@@ -41,6 +41,15 @@ def _get(url, retries=3, backoff=1.5):
     raise last
 
 
+def _tail_days(df, days):
+    """Last `days` of a datetime-indexed frame. Replacement for DataFrame.last(),
+    which was removed in pandas 3.x (Streamlit Cloud runs pandas 3)."""
+    if len(df) == 0:
+        return df
+    cutoff = df.index.max() - pd.Timedelta(days=days)
+    return df[df.index > cutoff]
+
+
 # ----------------------------------------------------------------------
 # Raw data
 # ----------------------------------------------------------------------
@@ -240,7 +249,7 @@ def multi_chain_history(chains, days=365):
             continue
     df = pd.DataFrame(series).dropna()
     if len(df):
-        df = df.last(f"{days}D")
+        df = _tail_days(df, days)
     return df
 
 
@@ -287,7 +296,7 @@ def _wide_ffill(chains, days):
     if not series:
         return pd.DataFrame()
     df = pd.DataFrame(series).sort_index()
-    df = df.last(f"{days}D").ffill()
+    df = _tail_days(df, days).ffill()
     return df
 
 
@@ -357,7 +366,7 @@ def stablecoin_prices(symbols=("USDT", "USDC", "DAI", "USDe"), days=365):
         key = _PEG_KEYS.get(sym)
         out[sym] = df["prices"].apply(lambda p: p.get(key) if isinstance(p, dict) else None)
     res = pd.DataFrame(out).set_index("date").dropna(how="all")
-    return res.last(f"{days}D")
+    return _tail_days(res, days)
 
 
 def depeg_events(price_df, threshold=0.005):
