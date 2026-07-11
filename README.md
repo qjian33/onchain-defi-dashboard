@@ -4,7 +4,7 @@ A live analytics dashboard over the DeFi and stablecoin markets, built from publ
 on-chain data. It pairs standard market-structure charts with a **rolling mean ± kσ
 anomaly-detection layer** that flags abnormal daily moves in aggregate supply and TVL.
 
-**Live dashboard:** _(add your Streamlit Community Cloud URL here after deploying)_
+**Live dashboard:** https://onchain-defi-intel.streamlit.app  ·  **Code:** https://github.com/qjian33/onchain-defi-dashboard
 
 ![TVL by chain](charts/1_chain_tvl.png)
 
