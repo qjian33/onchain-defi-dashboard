@@ -189,22 +189,25 @@ def stablecoins_by_chain():
 # ----------------------------------------------------------------------
 def detect_anomalies(df, value_col, date_col="date", window=30, k=2.0):
     """
-    Flag days whose day-over-day change deviates more than k standard deviations
-    from a trailing `window`-day rolling mean of that change.
+    Flag days whose day-over-day RETURN (percent change) deviates more than k
+    standard deviations from a trailing `window`-day rolling mean of returns.
+
+    Detection runs on percent change (scale-invariant), not absolute change,
+    so z-scores stay calibrated even when the series drifts a lot.
 
     Returns a copy of df with added columns:
-      change      : day-over-day absolute change in value_col
-      roll_mean   : trailing rolling mean of change
-      roll_std    : trailing rolling std of change
-      z           : (change - roll_mean) / roll_std
+      change      : day-over-day ABSOLUTE change in value_col (kept for display)
+      ret         : day-over-day percent change (what detection runs on)
+      roll_mean / roll_std / z : rolling stats of ret
       anomaly     : bool, |z| > k
       direction   : 'spike' / 'drop' / '' for flagged rows
     """
     out = df.sort_values(date_col).copy().reset_index(drop=True)
-    out["change"] = out[value_col].diff()
-    out["roll_mean"] = out["change"].rolling(window, min_periods=window // 2).mean()
-    out["roll_std"] = out["change"].rolling(window, min_periods=window // 2).std()
-    out["z"] = (out["change"] - out["roll_mean"]) / out["roll_std"]
+    out["change"] = out[value_col].diff()          # absolute, for USD display
+    out["ret"] = out[value_col].pct_change()       # relative, for detection
+    out["roll_mean"] = out["ret"].rolling(window, min_periods=window // 2).mean()
+    out["roll_std"] = out["ret"].rolling(window, min_periods=window // 2).std()
+    out["z"] = (out["ret"] - out["roll_mean"]) / out["roll_std"]
     out["anomaly"] = out["z"].abs() > k
     out["direction"] = ""
     out.loc[out["anomaly"] & (out["z"] > 0), "direction"] = "spike"
