@@ -95,14 +95,16 @@ st.caption("Live data from DefiLlama · multi-chain drill-down · rolling mean �
 with st.sidebar:
     st.header("⚙️ Controls")
     window = st.slider("Anomaly rolling window (days)", 14, 90, 30)
-    k = st.slider("Anomaly threshold (k · σ)", 1.5, 3.5, 2.0, step=0.1)
+    k = st.slider("Anomaly threshold (k · σ)", 1.5, 5.0, 3.0, step=0.1)
     exclude_cex = st.checkbox("Exclude CEX / custodial from chain view", value=True,
                               help="CEX wallets (Binance, OKX…) dominate raw TVL but aren't native DeFi. "
                                    "Excluding them gives a cleaner picture of on-chain DeFi activity.")
     st.markdown("---")
-    st.markdown("**Anomaly method** — each series' day-over-day change is compared to a trailing "
-                "rolling mean; days beyond **k·σ** are flagged as spikes/drops. Same approach I used for "
-                "funding-rate / order-flow anomaly detection in my quant-research automation project.")
+    st.markdown("**Anomaly method** — each day's return is scored against a strictly trailing "
+                "baseline (the tested day never contaminates it) using **robust statistics**: median + MAD "
+                "(×1.4826, σ-equivalent) instead of mean/std, so one large shock cannot inflate the scale and "
+                "mask later anomalies. Days beyond **k·σ** are flagged. Evolved from the funding-rate / "
+                "order-flow anomaly detection in my quant-research project.")
 
 chains = L_chain_tvl()
 total_tvl = chains["tvl"].sum()
