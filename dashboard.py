@@ -82,6 +82,12 @@ def L_depeg_prices():     return od.stablecoin_prices(("USDT", "USDC", "DAI", "U
 @st.cache_data(ttl=3600)
 def L_net_flows(days):    return od.net_flows(days=days)
 @st.cache_data(ttl=3600)
+def L_cg_change(cid, days):
+    try:
+        return od.coingecko_change(cid, days)
+    except Exception:
+        return None
+@st.cache_data(ttl=3600)
 def L_flow_vs_price(chain, days): return od.flow_vs_price(chain, days)
 
 
@@ -752,6 +758,7 @@ with tab_whale:
 
     # ---- cross-signal whale verdict (same window; stablecoin signal prioritized) ----
     chain_net, stable_net = L_net_flows(wdays)
+    btc_chg = L_cg_change("bitcoin", wdays)   # third signal: market price direction
     if chain_net > 0 and stable_net > 0:
         vlabel = "🟢 Whales accumulating"
         vexp = ("Both chain TVL and stablecoin supply grew over the window — real cash is entering DeFi "
@@ -761,10 +768,24 @@ with tab_whale:
         vexp = ("Both chain TVL and stablecoin supply shrank — big money is stepping back and redeeming to "
                 "cash. A clear risk-off signal.")
     elif stable_net < 0 <= chain_net:
-        vlabel = "🟠 Cash leaving (TVL propped by price)"
-        vexp = ("Stablecoins are being redeemed (real cash exiting) even though chain TVL rose — the TVL gain "
-                "is likely price appreciation of locked assets, not fresh deposits. Leaning risk-off: the "
-                "stablecoin signal is the cleaner cash tell, so treat the TVL rise with caution.")
+        # Stablecoins shrank while TVL rose — two rival explanations (money exiting
+        # crypto vs. rotation from stablecoins INTO risk assets). Market price
+        # direction arbitrates: genuine exit usually pressures prices, rotation lifts them.
+        if btc_chg is not None and btc_chg > 2:
+            vlabel = "🟠 Rotation into risk — thin rally"
+            vexp = ("Stablecoin supply shrank while majors RALLIED — more consistent with capital rotating "
+                    "out of stablecoins into risk assets than with money leaving crypto. But the rally is not "
+                    "backed by fresh on-chain cash: it runs on existing balances, which makes it fragile if "
+                    "the rotation stalls.")
+        elif btc_chg is not None and btc_chg < -2:
+            vlabel = "🔴 Cash exiting — risk-off"
+            vexp = ("Stablecoin supply shrank AND majors fell — consistent with genuine redemptions leaving "
+                    "crypto rather than rotation. The TVL gain is price/composition noise; treat it with caution.")
+        else:
+            vlabel = "🟠 Cash buffer shrinking — ambiguous"
+            vexp = ("Stablecoins are being redeemed while chain TVL rose. That can be money exiting crypto OR "
+                    "rotation from stablecoins into risk assets — price action is too flat to arbitrate. "
+                    "Either way, the on-chain cash buffer is thinning.")
     else:  # stable_net >= 0, chain_net < 0
         vlabel = "🟡 Cash entering, TVL soft"
         vexp = ("Fresh stablecoins are being minted (cash entering crypto) while chain TVL slipped — new money "
@@ -773,8 +794,10 @@ with tab_whale:
         f"### {vlabel}\n\n{vexp} "
         f"*(True net over the same {wdays}-day window: chain TVL "
         f"{('+' if chain_net>=0 else '')}{money(chain_net)} USD, stablecoin supply "
-        f"{('+' if stable_net>=0 else '')}{money(stable_net)} USD. Stablecoin supply is pegged, so it has no "
-        "price noise — it's the more reliable read on real cash in/out.)*"
+        f"{('+' if stable_net>=0 else '')}{money(stable_net)} USD"
+        + (f"; BTC **{btc_chg:+.1f}%**" if btc_chg is not None else "") +
+        ". Stablecoin supply is pegged, so it has no price noise. Caveat: since spot ETFs, stablecoins are "
+        "no longer the only fiat gateway — ETF flows move cash in/out off-chain, invisible to this monitor.)*"
     )
 
     # ---- chain-level whale flows ----
