@@ -16,6 +16,7 @@ import time
 import requests
 import pandas as pd
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 
 LLAMA = "https://api.llama.fi"
 STABLES = "https://stablecoins.llama.fi"
@@ -196,10 +197,32 @@ def stablecoins_by_chain():
 # ----------------------------------------------------------------------
 # Signature: rolling mean ± k·σ anomaly detection
 # ----------------------------------------------------------------------
+def _rolling_mad(s, window, min_periods):
+    """
+    Rolling median absolute deviation, textbook definition: within each window,
+    deviations are measured against THAT window's own median. Vectorised with
+    sliding_window_view so the dashboard stays responsive on ~3k-row series.
+    """
+    # +/-inf shows up when a series starts from zero (chain launch); treat it as
+    # missing so centre and scale drop the same observations.
+    arr = s.replace([np.inf, -np.inf], np.nan).to_numpy(dtype=float)
+    # Front-pad with NaN so window j ends at position j, matching pandas'
+    # rolling(window, min_periods) semantics (partial windows, NaN skipped).
+    padded = np.concatenate([np.full(window - 1, np.nan), arr])
+    w = sliding_window_view(padded, window)                        # (n, window)
+    with np.errstate(invalid="ignore"):
+        med = np.nanmedian(w, axis=1)
+        mad = np.nanmedian(np.abs(w - med[:, None]), axis=1)
+    valid = np.count_nonzero(~np.isnan(w), axis=1) >= min_periods
+    return pd.Series(np.where(valid, mad, np.nan), index=s.index)
+
+
 def detect_anomalies(df, value_col, date_col="date", window=30, k=2.0, robust=True):
     """
     Flag days whose day-over-day RETURN (percent change) deviates more than k
-    standard deviations from a trailing `window`-day rolling mean of returns.
+    scale units from a trailing `window`-day rolling baseline of returns.
+    Robust mode (default) uses median + MAD x 1.4826 as centre/scale; classic
+    mode uses mean + standard deviation.
 
     Detection runs on percent change (scale-invariant), not absolute change,
     so z-scores stay calibrated even when the series drifts a lot.
@@ -231,8 +254,10 @@ def detect_anomalies(df, value_col, date_col="date", window=30, k=2.0, robust=Tr
         # later anomalies; median/MAD are insensitive to it. The 1.4826 factor
         # scales MAD to be sigma-equivalent under normality, so `k` keeps its
         # usual "k-sigma" interpretation.
+        # MAD is measured within each window against THAT window's own median
+        # (textbook definition), not against a rolling median per point.
         center = past.rolling(window, min_periods=window // 2).median()
-        mad = (past - center).abs().rolling(window, min_periods=window // 2).median()
+        mad = _rolling_mad(past, window, min_periods=window // 2)
         scale = (mad * 1.4826).replace(0, np.nan)   # flat windows -> undefined, not infinite
     else:
         center = past.rolling(window, min_periods=window // 2).mean()
